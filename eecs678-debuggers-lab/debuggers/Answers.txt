@@ -1,0 +1,69 @@
+1. Find all the memory leaks in valgrind_test.c using valgrind
+    
+A: When running Valgrind with --leak-check=full and --track-origins=yes, I found multiple areas where memory leaks or errors could occurr:
+    a. Conditional jump or move depends on uninitialised values(s)
+            at 0x109181: main (valgrind_test.c:20)
+        Uninitialised value was created by a stack allocation
+            at 0x109149: main (valgrind_test.c:17)
+       
+       The int variable, uninitialised_variable at line 17, is never given an initalizing value. This variable is required in the for loop on line 20. 
+       To amend this problem, I initalized the variable with a value of 0, and this fixed the issue.
+
+    b.  1,035 (552 direct, 483 indirect) bytes in 69 blocks are definitely lost in loss record 4 of 4
+            at 0x483B7F3: malloc (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+            0x109160: main (valgrind_test.c:21)
+
+        This report is telling us that there is definitely memory loss on line 21 where the pointer, definitely_lost, is allocated. Then, this pointer points to something else on the heap, so the data it pointed to before will be lost.
+        To avoid this, I added a free function to free the pointer's memory at the end of the for loop. For example:
+            
+            void** definitely_lost = (void**) malloc(sizeof(void*));
+
+            *definitely_lost = (void*) malloc(7);
+
+            free(*definitely_lost);
+            free(definitely_lost);
+
+
+    c.  10 bytes in 1 blocks are possibly lost in loss record 1 of 4
+            at 0x483B7F3: malloc (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+            by 0x10919D: main (valgrind_test.c:37)
+
+        This report is telling us that at line 37, there is an allocated pointer that is pointing to the middle of the allocated block, but doesn't point to the front. This memory may get lost.
+        To amend this problem, I freed still_reachable:
+
+        still_reachable = malloc(42);
+
+        free(still_reachable);
+
+    d. ==4224== 10 bytes in 1 blocks are possibly lost in loss record 1 of 1
+       ==4224==    at 0x483B7F3: malloc (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+       ==4224==    by 0x1091EE: main (valgrind_test.c:41)
+
+       Finally, this message tells us that we're losing memory on line 41. This is because we are allocating memory for possibly_lost, then adding 4 to it. This causes the pointer to point to the middle of the block.
+       To fix this, I subtracted 4 from possibly_lost (to keep the existing code), and then freed possibly_lost, as shown below:
+
+         possibly_lost = malloc(10);
+         possibly_lost += 4; 
+
+         possibly_lost -= 4;
+         free(possibly_lost);
+
+2. To fix the errors in bugs.c, I did the following:
+
+    a. [line 38] - I grew the array on line 38 to add space for a null character, which is required for a char* (string)
+
+    b. [line 68] - I changed printf("%s ", iter) to printf("%s ", *iter) in order to print the value of the pointer instead of the iter address itself. 
+
+    c. [line 78] - I changed the for loop stop parameter to iter != stop_beginning in order to stop before we reach the scary bug variable of the info.
+
+    d. [line 91] - I initalized bug_info.num_bugs_on_mars = 0 so that I wouldn't run into initalization errors in valgrind, since the existing one appears after it is printed
+
+    e. [line 105] - Since I grew the array on line 38 to [7], I can now set bug_info.sentence[6] = NULL to complete the char* (string)
+
+    f. [line 127] - Since the value of bug_info.sentence[2] is changed in the following line, we need to free it first, so I added free(bug_info.sentence[2]) before it.
+
+    g. [line 144] - Although probably uneccessary, I added free(bug_info.sentence[6]), just in case we need to free the NULL value
+
+    h. [line 145] - In order to print "NULL" in line 148, I added bug_info.sentence[2] = NULL so the value of sentence[2] would be correct.
+
+
