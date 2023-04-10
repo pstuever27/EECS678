@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "libscheduler.h"
 #include "../libpriqueue/libpriqueue.h"
@@ -16,9 +17,28 @@
 */
 typedef struct _job_t
 {
+    int id;
+    int arrival;
+    int period;
+    int wait;
+    int precedence;
+    int coreID;
+    int timeRequired;
+    int response;
+    int turnover;
+    int RR;
+    int last;
+    struct _job_t *nextJob;
+
 
 } job_t;
 
+//Globals
+int mJobCount, mJobTotal, mCores;
+int *mScheduler;
+job_t *mJobs;
+priqueue_t *mJobQueue;
+scheme_t mScheme;
 
 /**
   Initalizes the scheduler.
@@ -32,9 +52,70 @@ typedef struct _job_t
   @param cores the number of cores that is available by the scheduler. These cores will be known as core(id=0), core(id=1), ..., core(id=cores-1).
   @param scheme  the scheduling scheme that should be used. This value will be one of the six enum values of scheme_t
 */
-void scheduler_start_up(int cores, scheme_t scheme)
+
+int compTime( const void * i, const void * j )
 {
 
+  return ( *(job_t*)i).timeRequired - ((*(job_t*)j).timeRequired);
+
+}
+
+int compPrec( const void * i, const void * j )
+{
+    int c = ( *( job_t* )i ).precedence - ( *( job_t* )j ).precedence;
+    if( c == 0 )
+    {
+        return ( *( job_t* )i ).arrival - ( *( job_t* )j ).arrival;
+    } 
+    else{
+        return c;
+    } 
+
+}
+
+int compOne(  const void * i, const void * j )
+{
+    return 1;
+}
+
+void scheduler_start_up(int cores, scheme_t scheme)
+{
+  mScheduler = malloc( cores * sizeof(int));
+  mJobQueue = malloc(sizeof( priqueue_t ));
+  mScheme = scheme;
+  mCores = cores;
+
+  for( int i = 0; i < cores; i++ )
+  {
+    mScheduler[i] = 0;
+  }
+
+  switch( mScheme )
+  {
+    case FCFS : 
+      priqueue_init( mJobQueue, compOne );
+      break;
+    
+    case RR : 
+      priqueue_init( mJobQueue, compOne );
+      break;
+    
+    case SJF :
+      priqueue_init( mJobQueue, compTime );
+      break;
+
+    case PSJF :
+        priqueue_init( mJobQueue, compTime );
+        break;
+    
+    case PRI :
+        priqueue_init( mJobQueue, compPrec );
+        break;
+
+    case PPRI : 
+        priqueue_init( mJobQueue, compPrec );
+        break;
+  }
 }
 
 
@@ -60,7 +141,114 @@ void scheduler_start_up(int cores, scheme_t scheme)
  */
 int scheduler_new_job(int job_number, int time, int running_time, int priority)
 {
-	return -1;
+	mJobCount++;
+    mJobTotal++;
+    job_t *job1;
+    job_t *job2;
+    bool done = 0;
+
+    if(job_number == 0)
+    {
+        mJobs = malloc(sizeof(job_t ));
+        job1 = mJobs; 
+    }
+    else if( job_number == 1 )
+    {
+        job1 = malloc(sizeof( job_t ));
+        mJobs->nextJob = job1;
+    }
+    else
+    {
+        job1 = mJobs;
+        for( int i = 0; i < (mJobTotal - 2); i++)
+        {
+            job1 = job1->nextJob;
+        }
+        job2 = malloc(sizeof( job_t ));
+        job1->nextJob = job2;
+        job1 = job2;
+    }
+
+    job1->id = job_number;
+    job1->period = running_time;
+    job1->arrival = time;
+    job1->precedence = priority;
+    job1->timeRequired = running_time;
+    job1->last = -1;
+    job1->response = -1;
+    job1->coreID = -1;
+    int newCoreID = -1;
+    int pos = -1;
+
+    for( int i = 0; i < priqueue_size(mJobQueue); i++ )
+    {
+        job_t *ptr = (job_t*)priqueue_at(mJobQueue, i);
+        if( ptr->coreID != -1 )
+        {
+            ptr->timeRequired = ptr->period - (time - ptr->wait - ptr->arrival );
+        }
+    }
+
+    for( int i = 0; i < mCores; i++ )
+    {
+        if( mScheduler[i] == 0 )
+        {
+            job1->response = 0;
+            job1->wait = 0;
+
+            newCoreID = i;
+            job1->coreID = i;
+
+            if( mScheme == RR )
+            {
+                job1->RR = priqueue_size( mJobQueue );
+            }
+            mScheduler[i] = 1;
+            pos = priqueue_offer( mJobQueue, job1 );
+            done = 1;
+            break;
+        }
+    }
+
+    if( !done && (mScheme == PPRI || mScheme == PSJF ))
+    {
+        pos = priqueue_offer( mJobQueue, job1 );
+        if( pos < mCores )
+        {
+            for( int i = (priqueue_size(mJobQueue) - 1); i >= 0; i-- )
+            {
+                if(((job_t*)priqueue_at(mJobQueue, i))->coreID != -1 )
+                {
+                    job_t *ptr = (job_t*)priqueue_at( mJobQueue, i );
+                    newCoreID = ptr->coreID;
+                    mScheduler[newCoreID] = 1;
+                    ptr->last = time;
+                    ptr->coreID = -1;
+                    ptr->timeRequired = ptr->period - ( time - ptr->wait - ptr->arrival );
+                    if( ptr->timeRequired == ptr->period )
+                    {
+                        ptr->response = -1;
+                        ptr->last = -1;
+                        ptr->wait = -1;
+                    }
+                    break;
+                }
+            }
+            job1->coreID = newCoreID;
+            job1->wait = 0;
+            job1->response = 0;
+            done = 1;
+        }
+    }
+    if( !done && mScheme != PSJF && mScheme != PPRI )
+    {
+        if( mScheme == RR )
+        {
+            job1->RR = priqueue_size( mJobQueue );
+        }
+        pos = priqueue_offer( mJobQueue, job1 );
+    }
+    return newCoreID;
 }
 
 
@@ -80,7 +268,118 @@ int scheduler_new_job(int job_number, int time, int running_time, int priority)
  */
 int scheduler_job_finished(int core_id, int job_number, int time)
 {
-	return -1;
+	job_t *ptr;
+    mJobCount--;
+
+    mScheduler[core_id] = 0;
+    int idle;
+
+    if( mScheme != RR )
+    {
+        for( int i = 0; i < priqueue_size(mJobQueue); i++ )
+        {
+            ptr = (job_t*)priqueue_at( mJobQueue, i );
+            if( ptr->id == job_number )
+            {
+                ptr = (job_t*)priqueue_remove_at(mJobQueue, i);
+                idle = core_id;
+                ptr->timeRequired = ptr->period - (time - ptr->wait - ptr->arrival );
+                ptr->turnover = time - ptr->arrival;
+                ptr->coreID = -1;
+            }
+        } 
+        ptr = (job_t*)priqueue_peek(mJobQueue);
+        if( ptr == NULL )
+        {
+            return -1;
+        }
+        else
+        {
+            int i = 0;
+            while( ptr->coreID != -1 && i < priqueue_size(mJobQueue) - 1)
+            {
+                ptr = (job_t*)priqueue_at( mJobQueue, i );
+                i++;
+            }
+
+            if( ptr->coreID != -1 )
+            {
+                return -1;
+            }
+
+            if( ptr->last != -1 )
+            {
+                ptr->wait = ptr->wait + (time - ptr->last);
+                ptr->last = -1;
+            }
+            
+            if( ptr->response == -1 )
+            {
+                ptr->response = time - ptr->arrival;
+                ptr->wait = time - ptr->arrival;
+            }
+
+            ptr->coreID = idle;
+            mScheduler[core_id] = 1;
+            return ptr->id;
+        }
+    }
+    else
+    {
+        for( int i = 0; i < priqueue_size( mJobQueue); i++ )
+        {
+            ptr = (job_t*)priqueue_at( mJobQueue, i );;
+            if( ptr->id == job_number )
+            {
+                ptr = (job_t*)priqueue_remove_at(mJobQueue, i);
+                ptr->turnover = time - ptr->arrival;
+                ptr->timeRequired = ptr->period - ( time - ptr->wait - ptr->arrival );
+                ptr->RR = -1;
+                ptr->coreID = -1;
+                idle = core_id;
+            }
+        }
+        for( int i = 0; i < priqueue_size( mJobQueue ); i++ )
+        {
+            ptr = (job_t*)priqueue_at(mJobQueue, i);
+            ptr->RR = i;
+        }
+        ptr = (job_t*)priqueue_peek(mJobQueue);
+
+        if(ptr == NULL )
+        {
+            return -1;
+        }
+        else
+        {
+            int count = 0;
+            while( count < (priqueue_size(mJobQueue) - 1) && ptr->coreID != -1 )
+            {
+                count++;
+                ptr = (job_t*)priqueue_at( mJobQueue, count );
+            }
+
+            if( ptr->last != -1)
+            {
+                ptr->wait = ptr->wait + ( time - ptr->last );
+                ptr->last = -1;
+            }
+
+            if( ptr->coreID != 1 )
+            {
+                return -1;
+            }
+
+            if( ptr->response == -1 )
+            {
+                ptr->wait = time - ptr->arrival;
+                ptr->response = time-ptr->arrival;
+            }
+            ptr->coreID = idle;
+            mScheduler[core_id] = 1;
+            return ptr->id;
+        }
+    }
 }
 
 
@@ -99,7 +398,63 @@ int scheduler_job_finished(int core_id, int job_number, int time)
  */
 int scheduler_quantum_expired(int core_id, int time)
 {
-	return -1;
+	job_t *job1;
+    job_t *job2;
+
+    int count = 0;
+
+    for( int i = 0; i < priqueue_size(mJobQueue); i++ )
+    {
+        job1 = (job_t*)priqueue_at(mJobQueue, i );
+        if( job1->coreID == core_id )
+        {
+            job1->RR = priqueue_size( mJobQueue );
+            job1 = (job_t*)priqueue_remove_at( mJobQueue, i );
+            mScheduler[core_id] = -1;
+            job1->coreID = -1;
+            job1->last = time;
+            job1->timeRequired = job1->period - ( time - job1->wait - job1->arrival );
+            break; 
+        }
+    }
+
+    priqueue_offer( mJobQueue, job1 );
+    job2 = (job_t*)priqueue_peek(mJobQueue);
+
+    if( job2 == NULL )
+    {
+        return -1;
+    }
+    else
+    {
+        count = 0;
+        while( count < (priqueue_size(mJobQueue) - 1) && job2->coreID != -1 )
+        {
+            count++;
+            job2 = (job_t*)priqueue_at( mJobQueue, count );
+        }
+
+        if( job2->last != -1 )
+        {
+            job2->last = -1;
+            job2->wait = job2->wait + ( time - job2->last );
+        }
+
+        if( job2->coreID != -1 )
+        {
+            return -1;
+        }
+
+        if( job2->response == -1 )
+        {
+            job2->wait = time - job2->arrival;
+            job2->arrival = time - job2->arrival;
+        }
+
+        mScheduler[core_id] = 1;
+        job2->coreID = core_id;
+        return job2->id;
+    }
 }
 
 
@@ -112,7 +467,16 @@ int scheduler_quantum_expired(int core_id, int time)
  */
 float scheduler_average_waiting_time()
 {
-	return 0.0;
+	job_t *job;
+
+    int totalTime = 0;
+    job = mJobs;
+    for( int i = 0; i < mJobTotal; i++ )
+    {
+        totalTime = totalTime + job->wait;
+        job = job->nextJob;
+    }
+    return (float)totalTime / (float)mJobTotal;
 }
 
 
@@ -125,7 +489,16 @@ float scheduler_average_waiting_time()
  */
 float scheduler_average_turnaround_time()
 {
-	return 0.0;
+		job_t *job;
+
+    int totalTime = 0;
+    job = mJobs;
+    for( int i = 0; i < mJobTotal; i++ )
+    {
+        totalTime = totalTime + job->turnover;
+        job = job->nextJob;
+    }
+    return (float)totalTime / (float)mJobTotal;
 }
 
 
@@ -138,7 +511,16 @@ float scheduler_average_turnaround_time()
  */
 float scheduler_average_response_time()
 {
-	return 0.0;
+	job_t *job;
+
+    int totalTime = 0;
+    job = mJobs;
+    for( int i = 0; i < mJobTotal; i++ )
+    {
+        totalTime = totalTime + job->response;
+        job = job->nextJob;
+    }
+    return (float)totalTime / (float)mJobTotal;
 }
 
 

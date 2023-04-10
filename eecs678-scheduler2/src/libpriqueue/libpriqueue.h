@@ -7,14 +7,19 @@
 /**
   Priqueue Data Structure
 */
+
+typedef struct _nodeType
+{
+  struct nodeType* next;
+  void* data;
+} nodeType;
+
 typedef struct _priqueue_t
 {
-  int(*mComparer)(const boid *, const void *0);
-  int mSize;
-  void **mArr;
-
+  nodeType* top;
+  int size;
+  int( *comparer )( const void*, const void* );
 } priqueue_t;
-
 
 void   priqueue_init     (priqueue_t *q, int(*comparer)(const void *, const void *));
 
