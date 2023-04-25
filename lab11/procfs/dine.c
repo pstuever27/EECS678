@@ -227,14 +227,14 @@ int check_for_deadlock()
      * 1. Store the stat filename for this diner into a buffer. Use the sprintf
      * library call.
      */
-    
+    sprintf( filename, statf );
 
     /* 
      * 2. Use fopen to open the stat file as a file stream. Open it
      * with read only permissions.
      */
 
-
+    fopen( filename, check_for_deadlock() );
 
 
 
@@ -245,29 +245,32 @@ int check_for_deadlock()
      */
 
 
-
-
-
-
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
+    fscanf( statf, "%*s");
     
     /* 
      * 4. Read the time values you want. Use fscanf again. 
      */ 
-
-
-
+    new_sys_time = fscanf( statf, "%us");
+    new_user_time = fscanf( statf, "%us");
 
    
     /*
      * 5. Use time values to determine if deadlock has occurred.
      */
    
- 
-
-
-
-
-
+    check_for_deadlock();
 
     /*
      * 6. Close the stat file stream 
